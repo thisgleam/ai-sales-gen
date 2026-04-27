@@ -4,65 +4,70 @@
 @section('subtitle', 'Create your account to start generating sales.')
 
 @section('content')
-    <form action="{{ route('register') }}" method="POST" class="space-y-6">
+    <form action="{{ route('register') }}" method="POST" class="space-y-4">
         @csrf
 
         @if ($errors->any())
-            <div class="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
-                @foreach ($errors->all() as $error)
-                    <p>{{ $error }}</p>
-                @endforeach
+            <div class="alert alert-error shadow-lg">
+                <div class="flex flex-col items-start">
+                    @foreach ($errors->all() as $error)
+                        <span class="text-sm font-semibold">{{ $error }}</span>
+                    @endforeach
+                </div>
             </div>
         @endif
 
-        <div>
-            <label for="name" class="block text-sm font-medium text-slate-300">Full Name</label>
-            <div class="mt-1">
-                <input id="name" name="name" type="text" autocomplete="name" required 
-                    class="block w-full appearance-none rounded-lg border border-slate-700 bg-slate-900/50 px-3 py-2 text-white placeholder-slate-500 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 sm:text-sm transition-all"
-                    placeholder="John Doe">
-            </div>
+        <div class="form-control w-full">
+            <label class="label pt-0" for="name">
+                <span class="label-text font-bold opacity-70 uppercase tracking-widest text-[10px]">Full Name</span>
+            </label>
+            <input id="name" name="name" type="text" autocomplete="name" required 
+                class="input input-bordered w-full bg-base-200/50 focus:input-primary transition-all duration-300"
+                placeholder="John Doe">
         </div>
 
-        <div>
-            <label for="email" class="block text-sm font-medium text-slate-300">Email address</label>
-            <div class="mt-1">
-                <input id="email" name="email" type="email" autocomplete="email" required 
-                    class="block w-full appearance-none rounded-lg border border-slate-700 bg-slate-900/50 px-3 py-2 text-white placeholder-slate-500 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 sm:text-sm transition-all"
-                    placeholder="you@example.com">
-            </div>
+        <div class="form-control w-full">
+            <label class="label pt-0" for="email">
+                <span class="label-text font-bold opacity-70 uppercase tracking-widest text-[10px]">Email Address</span>
+            </label>
+            <input id="email" name="email" type="email" autocomplete="email" required 
+                class="input input-bordered w-full bg-base-200/50 focus:input-primary transition-all duration-300"
+                placeholder="name@company.com">
         </div>
 
-        <div>
-            <label for="password" class="block text-sm font-medium text-slate-300">Password</label>
-            <div class="mt-1">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div class="form-control w-full">
+                <label class="label pt-0" for="password">
+                    <span class="label-text font-bold opacity-70 uppercase tracking-widest text-[10px]">Password</span>
+                </label>
                 <input id="password" name="password" type="password" autocomplete="new-password" required 
-                    class="block w-full appearance-none rounded-lg border border-slate-700 bg-slate-900/50 px-3 py-2 text-white placeholder-slate-500 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 sm:text-sm transition-all"
+                    class="input input-bordered w-full bg-base-200/50 focus:input-primary transition-all duration-300"
                     placeholder="••••••••">
             </div>
-        </div>
 
-        <div>
-            <label for="password_confirmation" class="block text-sm font-medium text-slate-300">Confirm Password</label>
-            <div class="mt-1">
+            <div class="form-control w-full">
+                <label class="label pt-0" for="password_confirmation">
+                    <span class="label-text font-bold opacity-70 uppercase tracking-widest text-[10px]">Confirm</span>
+                </label>
                 <input id="password_confirmation" name="password_confirmation" type="password" autocomplete="new-password" required 
-                    class="block w-full appearance-none rounded-lg border border-slate-700 bg-slate-900/50 px-3 py-2 text-white placeholder-slate-500 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 sm:text-sm transition-all"
+                    class="input input-bordered w-full bg-base-200/50 focus:input-primary transition-all duration-300"
                     placeholder="••••••••">
             </div>
         </div>
 
-        <div>
-            <button type="submit" 
-                class="flex w-full justify-center rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/20 hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-slate-900 transition-all active:scale-[0.98]">
+        <div class="pt-4">
+            <button type="submit" class="btn btn-primary btn-block shadow-lg shadow-primary/20 transition-all duration-300 hover:scale-[1.02] active:scale-[0.98]">
                 Create Account
             </button>
         </div>
 
-        <div class="mt-6 text-center text-sm">
-            <span class="text-slate-400">Already have an account?</span>
-            <a href="{{ route('login') }}" class="ml-1 font-medium text-indigo-400 hover:text-indigo-300 transition-colors">
-                Sign in instead
-            </a>
+        <div class="divider text-[10px] uppercase tracking-[0.2em] opacity-30 font-bold">Or</div>
+
+        <div class="text-center">
+            <p class="text-xs text-base-content/50 font-medium">
+                Already registered? 
+                <a href="{{ route('login') }}" class="link link-primary no-underline font-bold hover:underline">Sign In Instead</a>
+            </p>
         </div>
     </form>
 @endsection
