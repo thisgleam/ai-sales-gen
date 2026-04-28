@@ -81,7 +81,7 @@
                         AI-Powered Content Generation
                     </div>
                     <h1 class="text-6xl font-black text-white leading-[1.1] tracking-tighter mb-8 italic">
-                        CRAFT YOUR <span class="text-primary-content opacity-50">FUTURE</span> SALES.
+                        CRAFT YOUR <span class="text-primary-content">FUTURE</span> SALES.
                     </h1>
                     <p class="text-xl text-white/70 font-medium leading-relaxed">
                         Transform raw data into persuasive narratives that drive conversion and grow your business effortlessly.

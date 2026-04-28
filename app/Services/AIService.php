@@ -2,12 +2,20 @@
 
 namespace App\Services;
 
+use App\Data\SalesPageContentSchema;
+use GuzzleHttp\Client;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
+use RuntimeException;
 
 class AIService
 {
     private const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
+
     private const MODEL = 'openai/gpt-oss-120b:free';
+
+    private LlmResponseHandler $responseHandler;
 
     private string $systemPrompt = <<<'PROMPT'
 You are a world-class direct-response copywriter and marketing strategist.
@@ -39,59 +47,47 @@ SCHEMA:
 }
 PROMPT;
 
+    public function __construct(?LlmResponseHandler $responseHandler = null)
+    {
+        $this->responseHandler = $responseHandler ?? new LlmResponseHandler;
+    }
+
     /**
      * Generate structured sales page content from raw product data.
      *
-     * @param array $productData
      * @return array The decoded JSON content
-     * @throws \RuntimeException on API failure or invalid JSON
+     *
+     * @throws RuntimeException on API failure or invalid JSON
      */
     public function generateSalesPage(array $productData): array
     {
         $userMessage = $this->buildUserMessage($productData);
 
-        $response = Http::withToken(config('services.openrouter.key'))
-            ->withHeaders([
-                'HTTP-Referer'     => config('app.url'),
-                'X-OpenRouter-Title' => config('app.name'),
-                'Content-Type'     => 'application/json',
-            ])
-            ->timeout(90)
-            ->post(self::OPENROUTER_URL, [
-                'model'    => self::MODEL,
-                'messages' => [
-                    ['role' => 'system', 'content' => $this->systemPrompt],
-                    ['role' => 'user',   'content' => $userMessage],
-                ],
-                'response_format' => ['type' => 'json_object'],
-                'temperature'     => 0.8,
-            ]);
+        return $this->requestValidatedJson(
+            [
+                ['role' => 'system', 'content' => $this->systemPrompt],
+                ['role' => 'user', 'content' => $userMessage],
+            ],
+            SalesPageContentSchema::full(),
+            0.8,
+            90
+        );
+    }
 
-        if ($response->failed()) {
-            throw new \RuntimeException('OpenRouter API request failed: ' . $response->body());
-        }
+    public function streamSalesPage(array $productData, callable $onChunk): array
+    {
+        $userMessage = $this->buildUserMessage($productData);
 
-        $rawContent = $response->json('choices.0.message.content');
-
-        if (! $rawContent) {
-            throw new \RuntimeException('Empty response from AI model.');
-        }
-
-        // Clean up markdown code blocks if the AI accidentally includes them
-        $rawContent = trim($rawContent);
-        if (str_starts_with($rawContent, '```')) {
-            $rawContent = preg_replace('/^```(?:json)?\n?/', '', $rawContent);
-            $rawContent = preg_replace('/```$/', '', $rawContent);
-            $rawContent = trim($rawContent);
-        }
-
-        $decoded = json_decode($rawContent, true);
-
-        if (json_last_error() !== JSON_ERROR_NONE) {
-            throw new \RuntimeException('AI returned invalid JSON: ' . json_last_error_msg());
-        }
-
-        return $decoded;
+        return $this->requestValidatedJson(
+            [
+                ['role' => 'system', 'content' => $this->systemPrompt],
+                ['role' => 'user', 'content' => $userMessage],
+            ],
+            SalesPageContentSchema::full(),
+            0.8,
+            90,
+            $onChunk
+        );
     }
 
     /**
@@ -114,43 +110,174 @@ PROMPT;
         $userMessage = $this->buildUserMessage($productData);
         $userMessage .= "\n\nREGENERATE ONLY THE '$sectionKey' FIELD. It MUST be $structure.";
 
-        $response = Http::withToken(config('services.openrouter.key'))
+        $decoded = $this->requestValidatedJson(
+            [
+                ['role' => 'system', 'content' => "You are a copywriter. Return ONLY valid JSON. You MUST use '$sectionKey' as the ONLY root key. The value MUST be $structure."],
+                ['role' => 'user', 'content' => $userMessage],
+            ],
+            SalesPageContentSchema::section($sectionKey),
+            0.9,
+            60
+        );
+
+        return $decoded[$sectionKey] ?? throw new RuntimeException('Field not found in AI response.');
+    }
+
+    private function requestValidatedJson(array $messages, array $schema, float $temperature, int $timeout, ?callable $onChunk = null): array
+    {
+        $lastException = null;
+
+        foreach (range(0, 2) as $attempt) {
+            $attemptMessages = $this->messagesForAttempt($messages, $attempt);
+            $attemptTemperature = $attempt === 2 ? 0 : $temperature;
+
+            try {
+                if ($onChunk) {
+                    $rawContent = $this->postStreamingChatCompletion(
+                        $attemptMessages,
+                        $attemptTemperature,
+                        $timeout,
+                        fn (string $chunk) => $onChunk($chunk, $attempt + 1)
+                    );
+                } else {
+                    $response = $this->postChatCompletion($attemptMessages, $attemptTemperature, $timeout);
+
+                    if ($response->failed()) {
+                        throw new RuntimeException('OpenRouter API request failed: '.$response->body());
+                    }
+
+                    $rawContent = $response->json('choices.0.message.content');
+                }
+
+                if (! is_string($rawContent) || trim($rawContent) === '') {
+                    throw new RuntimeException('Empty response from AI model.');
+                }
+
+                return $this->responseHandler->validateJson($rawContent, $schema);
+            } catch (RuntimeException $exception) {
+                $lastException = $exception;
+
+                Log::error('AI JSON validation retry triggered', [
+                    'attempt' => $attempt + 1,
+                    'error' => $exception->getMessage(),
+                ]);
+            }
+        }
+
+        throw new RuntimeException('AI returned invalid JSON after 3 attempts: '.$lastException?->getMessage(), 0, $lastException);
+    }
+
+    private function postChatCompletion(array $messages, int|float $temperature, int $timeout): Response
+    {
+        return Http::withToken(config('services.openrouter.key'))
             ->withHeaders([
-                'HTTP-Referer'     => config('app.url'),
+                'HTTP-Referer' => config('app.url'),
                 'X-OpenRouter-Title' => config('app.name'),
-                'Content-Type'     => 'application/json',
+                'Content-Type' => 'application/json',
             ])
-            ->timeout(60)
+            ->timeout($timeout)
             ->post(self::OPENROUTER_URL, [
-                'model'    => self::MODEL,
-                'messages' => [
-                    ['role' => 'system', 'content' => "You are a copywriter. Return ONLY valid JSON. You MUST use '$sectionKey' as the ONLY root key. The value MUST be $structure."],
-                    ['role' => 'user',   'content' => $userMessage],
-                ],
+                'model' => self::MODEL,
+                'messages' => $messages,
                 'response_format' => ['type' => 'json_object'],
-                'temperature'     => 0.9,
+                'temperature' => $temperature,
             ]);
+    }
 
-        if ($response->failed()) {
-            throw new \RuntimeException('AI request failed.');
+    private function postStreamingChatCompletion(array $messages, int|float $temperature, int $timeout, callable $onChunk): string
+    {
+        $client = new Client([
+            'timeout' => $timeout,
+        ]);
+
+        $response = $client->post(self::OPENROUTER_URL, [
+            'headers' => [
+                'Authorization' => 'Bearer '.config('services.openrouter.key'),
+                'HTTP-Referer' => config('app.url'),
+                'X-OpenRouter-Title' => config('app.name'),
+                'Content-Type' => 'application/json',
+            ],
+            'http_errors' => false,
+            'json' => [
+                'model' => self::MODEL,
+                'messages' => $messages,
+                'response_format' => ['type' => 'json_object'],
+                'temperature' => $temperature,
+                'stream' => true,
+            ],
+            'stream' => true,
+        ]);
+
+        if ($response->getStatusCode() >= 400) {
+            throw new RuntimeException('OpenRouter API request failed: '.$response->getBody());
         }
 
-        $rawContent = trim($response->json('choices.0.message.content'));
-        
-        // Clean up markdown code blocks if the AI accidentally includes them
-        if (str_starts_with($rawContent, '```')) {
-            $rawContent = preg_replace('/^```(?:json)?\n?/', '', $rawContent);
-            $rawContent = preg_replace('/```$/', '', $rawContent);
-            $rawContent = trim($rawContent);
+        $body = $response->getBody();
+        $buffer = '';
+        $content = '';
+        $done = false;
+
+        while (! $body->eof() && ! $done) {
+            $buffer .= $body->read(1024);
+
+            while (($position = strpos($buffer, "\n")) !== false) {
+                $line = trim(substr($buffer, 0, $position));
+                $buffer = substr($buffer, $position + 1);
+
+                if ($line === '' || str_starts_with($line, ':') || ! str_starts_with($line, 'data:')) {
+                    continue;
+                }
+
+                $data = trim(substr($line, strlen('data:')));
+
+                if ($data === '[DONE]') {
+                    $done = true;
+                    break;
+                }
+
+                $payload = json_decode($data, true);
+
+                if (json_last_error() !== JSON_ERROR_NONE) {
+                    continue;
+                }
+
+                $chunk = $payload['choices'][0]['delta']['content']
+                    ?? $payload['choices'][0]['message']['content']
+                    ?? '';
+
+                if ($chunk === '') {
+                    continue;
+                }
+
+                $content .= $chunk;
+                $onChunk($chunk);
+            }
         }
 
-        $decoded = json_decode($rawContent, true);
-        
-        if (json_last_error() !== JSON_ERROR_NONE) {
-            throw new \RuntimeException('AI returned invalid JSON for section regeneration.');
+        return $content;
+    }
+
+    private function messagesForAttempt(array $messages, int $attempt): array
+    {
+        if ($attempt === 0) {
+            return $messages;
         }
 
-        return $decoded[$sectionKey] ?? throw new \RuntimeException('Field not found in AI response.');
+        foreach (array_reverse(array_keys($messages)) as $index) {
+            if (($messages[$index]['role'] ?? null) === 'user') {
+                $messages[$index]['content'] .= "\n\nStrict JSON Format: return exactly one valid JSON object matching the requested schema. Do not include markdown, commentary, or missing keys.";
+                break;
+            }
+        }
+
+        if ($attempt === 2) {
+            $messages[] = [
+                'role' => 'user',
+                'content' => 'Use deterministic output and repair any invalid or partial JSON before responding.',
+            ];
+        }
+
+        return $messages;
     }
 
     /**
@@ -159,19 +286,19 @@ PROMPT;
     private function buildUserMessage(array $productData): string
     {
         return sprintf(
-            "Generate a sales page for the following product:\n\n" .
-            "Product Name: %s\n" .
-            "Description: %s\n" .
-            "Key Features: %s\n" .
-            "Unique Selling Point: %s\n" .
-            "Target Audience: %s\n" .
-            "Pricing: %s",
-            $productData['product_name']  ?? '',
-            $productData['description']   ?? '',
-            $productData['key_features']  ?? '',
-            $productData['usp']           ?? '',
+            "Generate a sales page for the following product:\n\n".
+            "Product Name: %s\n".
+            "Description: %s\n".
+            "Key Features: %s\n".
+            "Unique Selling Point: %s\n".
+            "Target Audience: %s\n".
+            'Pricing: %s',
+            $productData['product_name'] ?? '',
+            $productData['description'] ?? '',
+            $productData['key_features'] ?? '',
+            $productData['usp'] ?? '',
             $productData['target_audience'] ?? '',
-            $productData['price']         ?? ''
+            $productData['price'] ?? ''
         );
     }
 }

@@ -3,6 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>Create Sales Page - AI Sales Gen</title>
     @vite(['resources/css/app.css', 'resources/js/app.js'])
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
@@ -139,9 +140,75 @@
                 }
             };
         }
+
+        function generationForm() {
+            return {
+                generating: false,
+                supportsStreaming() {
+                    return window.fetch && window.ReadableStream && window.TextDecoder;
+                },
+                async submit(event) {
+                    if (!this.supportsStreaming()) {
+                        window.dispatchEvent(new CustomEvent('ai-generate-start'));
+                        this.generating = true;
+                        return;
+                    }
+
+                    event.preventDefault();
+                    this.generating = true;
+                    window.dispatchEvent(new CustomEvent('ai-generate-start'));
+
+                    try {
+                        const response = await fetch('{{ route('pages.store-stream') }}', {
+                            method: 'POST',
+                            headers: {
+                                'Accept': 'text/event-stream',
+                                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                            },
+                            body: new FormData(event.target),
+                        });
+
+                        if (!response.ok || !response.body) {
+                            event.target.submit();
+                            return;
+                        }
+
+                        const reader = response.body.getReader();
+                        const decoder = new TextDecoder();
+                        let buffer = '';
+
+                        while (true) {
+                            const { value, done } = await reader.read();
+                            if (done) break;
+
+                            buffer += decoder.decode(value, { stream: true });
+                            const blocks = buffer.split('\n\n');
+                            buffer = blocks.pop() || '';
+                            blocks.forEach((block) => this.handleSse(block));
+                        }
+                    } catch (error) {
+                        event.target.submit();
+                    }
+                },
+                handleSse(block) {
+                    const lines = block.split('\n');
+                    const event = (lines.find((line) => line.startsWith('event: ')) || '').replace('event: ', '');
+                    const dataLine = (lines.find((line) => line.startsWith('data: ')) || '').replace('data: ', '');
+                    const data = dataLine ? JSON.parse(dataLine) : {};
+
+                    if (event === 'redirect' && data.url) {
+                        window.location.href = data.url;
+                    }
+
+                    if (event === 'error') {
+                        window.location.href = '{{ route('pages.create') }}';
+                    }
+                },
+            };
+        }
     </script>
     <div class="flex flex-col lg:flex-row h-screen overflow-hidden bg-white">
-        {{-- Left: Scripting Lab (The Form) --}}
+        {{-- Left: Sales Page Form --}}
         <div class="flex-1 lg:max-w-[60%] flex flex-col p-6 md:p-16 lg:p-20 overflow-y-auto" 
              x-data="{ step: 1, totalSteps: 4 }">
             
@@ -149,10 +216,10 @@
                 <div>
                     <a href="{{ route('dashboard') }}" class="group flex items-center gap-2 text-gray-400 hover:text-primary transition-colors mb-8">
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
-                        <span class="text-[10px] font-black uppercase tracking-[0.3em]">Exit Lab</span>
+                        <span class="text-[10px] font-black uppercase tracking-[0.3em]">Back to Dashboard</span>
                     </a>
                     <h1 class="text-7xl font-black tracking-tighter uppercase italic text-gray-900 leading-[0.8] mb-4">
-                        NEW<br><span class="text-primary italic">SCRIPT.</span>
+                        CREATE<br><span class="text-primary italic">SALES PAGE.</span>
                     </h1>
                 </div>
                 
@@ -165,7 +232,7 @@
                 </div>
             </header>
 
-            <form action="{{ route('pages.store') }}" method="POST" class="space-y-16">
+            <form action="{{ route('pages.store') }}" method="POST" class="space-y-16" x-data="generationForm()" @submit="submit($event)">
                 @csrf
 
                 @if ($errors->any())
@@ -182,49 +249,49 @@
                     </div>
                 @endif
 
-                {{-- Section 01: Identity --}}
+                {{-- Section 01: Product Basics --}}
                 <section x-show="step === 1" x-transition:enter="form-section opacity-0 translate-y-8" x-transition:enter-end="opacity-100 translate-y-0" class="space-y-12">
                     <div class="space-y-2">
                         <p class="text-[10px] font-black uppercase tracking-[0.5em] text-primary">Stage 01</p>
-                        <h2 class="text-4xl font-black tracking-tighter uppercase italic text-gray-900">IDENTITY.</h2>
+                        <h2 class="text-4xl font-black tracking-tighter uppercase italic text-gray-900">Product Basics.</h2>
                     </div>
 
                     <div class="space-y-12">
                         <div class="group">
-                            <label class="block text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 mb-4 group-focus-within:text-primary transition-colors">Product Nomenclature</label>
-                            <input type="text" name="product_name" required placeholder="What is it called?" 
+                            <label class="block text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 mb-4 group-focus-within:text-primary transition-colors">Product Name</label>
+                            <input type="text" name="product_name" required placeholder="e.g. Launch Kit" 
                                 class="w-full bg-transparent border-b-4 border-gray-100 py-4 text-3xl font-black text-gray-900 placeholder:text-gray-200 focus:outline-none focus:border-primary transition-all">
                         </div>
                         <div class="group">
-                            <label class="block text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 mb-4 group-focus-within:text-primary transition-colors">The Narrative Pitch</label>
-                            <textarea name="description" required rows="3" placeholder="Define the problem you solve..." 
+                            <label class="block text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 mb-4 group-focus-within:text-primary transition-colors">Product Description</label>
+                            <textarea name="description" required rows="3" placeholder="What problem does it solve, and why should customers care?" 
                                 class="w-full bg-transparent border-b-4 border-gray-100 py-4 text-xl font-bold text-gray-900 placeholder:text-gray-200 focus:outline-none focus:border-primary transition-all resize-none"></textarea>
                         </div>
                     </div>
 
                     <div class="pt-8">
                         <button type="button" @click="step = 2" class="w-full py-6 bg-gray-900 text-white rounded-2xl font-black uppercase tracking-widest italic hover:bg-primary transition-all shadow-xl shadow-gray-200">
-                            Next Stage
+                            Next: Offer Details
                         </button>
                     </div>
                 </section>
 
-                {{-- Section 02: Utility --}}
+                {{-- Section 02: Offer Details --}}
                 <section x-show="step === 2" x-cloak x-transition:enter="form-section opacity-0 translate-y-8" x-transition:enter-end="opacity-100 translate-y-0" class="space-y-12">
                     <div class="space-y-2">
                         <p class="text-[10px] font-black uppercase tracking-[0.5em] text-primary">Stage 02</p>
-                        <h2 class="text-4xl font-black tracking-tighter uppercase italic text-gray-900">UTILITY.</h2>
+                        <h2 class="text-4xl font-black tracking-tighter uppercase italic text-gray-900">Offer Details.</h2>
                     </div>
 
                     <div class="space-y-12">
                         <div class="group">
-                            <label class="block text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 mb-4 group-focus-within:text-primary transition-colors">Core Capabilities</label>
-                            <textarea name="key_features" required rows="3" placeholder="Features, comma separated..." 
+                            <label class="block text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 mb-4 group-focus-within:text-primary transition-colors">Key Features</label>
+                            <textarea name="key_features" required rows="3" placeholder="List the main features customers get..." 
                                 class="w-full bg-transparent border-b-4 border-gray-100 py-4 text-xl font-bold text-gray-900 placeholder:text-gray-200 focus:outline-none focus:border-primary transition-all resize-none"></textarea>
                         </div>
                         <div class="group">
-                            <label class="block text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 mb-4 group-focus-within:text-primary transition-colors">Unique Selling Logic</label>
-                            <input type="text" name="usp" required placeholder="Why does it win?" 
+                            <label class="block text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 mb-4 group-focus-within:text-primary transition-colors">Unique Selling Point</label>
+                            <input type="text" name="usp" required placeholder="What makes this offer different or better?" 
                                 class="w-full bg-transparent border-b-4 border-gray-100 py-4 text-xl font-bold text-gray-900 placeholder:text-gray-200 focus:outline-none focus:border-primary transition-all">
                         </div>
                     </div>
@@ -232,27 +299,27 @@
                     <div class="pt-8 flex gap-4">
                         <button type="button" @click="step = 1" class="px-8 text-[10px] font-black uppercase tracking-widest text-gray-400 hover:text-gray-900 transition-colors">Back</button>
                         <button type="button" @click="step = 3" class="flex-1 py-6 bg-gray-900 text-white rounded-2xl font-black uppercase tracking-widest italic hover:bg-primary transition-all shadow-xl shadow-gray-200">
-                            Continue
+                            Next: Audience and Pricing
                         </button>
                     </div>
                 </section>
 
-                {{-- Section 03: Market --}}
+                {{-- Section 03: Audience and Pricing --}}
                 <section x-show="step === 3" x-cloak x-transition:enter="form-section opacity-0 translate-y-8" x-transition:enter-end="opacity-100 translate-y-0" class="space-y-12">
                     <div class="space-y-2">
                         <p class="text-[10px] font-black uppercase tracking-[0.5em] text-primary">Stage 03</p>
-                        <h2 class="text-4xl font-black tracking-tighter uppercase italic text-gray-900">MARKET.</h2>
+                        <h2 class="text-4xl font-black tracking-tighter uppercase italic text-gray-900">Audience and Pricing.</h2>
                     </div>
 
                     <div class="space-y-12">
                         <div class="group">
-                            <label class="block text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 mb-4 group-focus-within:text-primary transition-colors">Target Archetype</label>
-                            <input type="text" name="target_audience" required placeholder="Who are we writing for?" 
+                            <label class="block text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 mb-4 group-focus-within:text-primary transition-colors">Target Audience</label>
+                            <input type="text" name="target_audience" required placeholder="Who is the ideal customer?" 
                                 class="w-full bg-transparent border-b-4 border-gray-100 py-4 text-xl font-bold text-gray-900 placeholder:text-gray-200 focus:outline-none focus:border-primary transition-all">
                         </div>
                         <div class="group">
-                            <label class="block text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 mb-4 group-focus-within:text-primary transition-colors">Value Structure</label>
-                            <input type="text" name="price" required placeholder="Price point or model..." 
+                            <label class="block text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 mb-4 group-focus-within:text-primary transition-colors">Pricing</label>
+                            <input type="text" name="price" required placeholder="e.g. $49/month, one-time $199, or free trial" 
                                 class="w-full bg-transparent border-b-4 border-gray-100 py-4 text-xl font-bold text-gray-900 placeholder:text-gray-200 focus:outline-none focus:border-primary transition-all">
                         </div>
                     </div>
@@ -260,17 +327,17 @@
                     <div class="pt-8 flex gap-4">
                         <button type="button" @click="step = 2" class="px-8 text-[10px] font-black uppercase tracking-widest text-gray-400 hover:text-gray-900 transition-colors">Back</button>
                         <button type="button" @click="step = 4" class="flex-1 py-6 bg-gray-900 text-white rounded-2xl font-black uppercase tracking-widest italic hover:bg-primary transition-all shadow-xl shadow-gray-200">
-                            Analyze
+                            Review & Generate
                         </button>
                     </div>
                 </section>
 
-                {{-- Section 04: Launch --}}
+                {{-- Section 04: Generate --}}
                 <section x-show="step === 4" x-cloak x-transition:enter="form-section opacity-0 translate-y-8" x-transition:enter-end="opacity-100 translate-y-0" class="space-y-12">
-                    <div class="text-center py-20 space-y-12" x-data="{ generating: false }">
+                    <div class="text-center py-20 space-y-12">
                         <div class="space-y-4">
-                            <h2 class="text-6xl font-black tracking-tighter uppercase italic text-gray-900 leading-none">READY TO<br><span class="text-primary">EXECUTE.</span></h2>
-                            <p class="text-gray-400 font-medium max-w-sm mx-auto">The script is complete. AI is standing by to generate your high-conversion assets.</p>
+                            <h2 class="text-6xl font-black tracking-tighter uppercase italic text-gray-900 leading-none">GENERATE<br><span class="text-primary">SALES PAGE.</span></h2>
+                            <p class="text-gray-400 font-medium max-w-sm mx-auto">Review your inputs, then let AI create the first version of your sales page.</p>
                         </div>
                         
                         <div class="space-y-6">
@@ -278,16 +345,16 @@
                                     @click="$dispatch('ai-generate-start'); setTimeout(() => generating = true, 50)"
                                     :disabled="generating"
                                     class="w-full py-8 bg-primary text-white rounded-3xl font-black uppercase tracking-[0.2em] italic text-xl shadow-2xl shadow-primary/30 hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50">
-                                Launch Script
+                                Generate Sales Page
                             </button>
-                            <button type="button" @click="step = 3" class="text-[10px] font-black uppercase tracking-widest text-gray-300 hover:text-gray-900 transition-colors">Re-evaluate Inputs</button>
+                            <button type="button" @click="step = 3" class="text-[10px] font-black uppercase tracking-widest text-gray-300 hover:text-gray-900 transition-colors">Edit Audience and Pricing</button>
                         </div>
                     </div>
                 </section>
             </form>
         </div>
 
-        {{-- Right: Intelligence Sidebar (The Oracle) --}}
+        {{-- Right: Step Guide --}}
         <div class="hidden lg:flex flex-1 bg-gray-50 p-24 flex-col justify-between relative overflow-hidden border-l border-gray-100" 
              x-data="{ activeStep: 1 }" 
              @step-changed.window="activeStep = $event.detail">
@@ -299,16 +366,16 @@
                     <div class="w-8 h-8 bg-gray-900 rounded flex items-center justify-center">
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10"/></svg>
                     </div>
-                    <span class="text-[10px] font-black uppercase tracking-[0.5em] text-gray-900">Oracle Intelligence v2.0</span>
+                    <span class="text-[10px] font-black uppercase tracking-[0.5em] text-gray-900">Generation Guide</span>
                 </div>
 
                 <div class="space-y-12">
                     <div class="p-8 bg-white rounded-3xl shadow-sm border border-gray-100 max-w-sm">
-                        <p class="text-[10px] font-black uppercase tracking-widest text-primary mb-4">Context Awareness</p>
+                        <p class="text-[10px] font-black uppercase tracking-widest text-primary mb-4">Current Step</p>
                         <h3 class="text-3xl font-black italic uppercase tracking-tighter text-gray-900 mb-4 leading-none" 
-                            x-text="activeStep === 1 ? 'IDENTITY.' : activeStep === 2 ? 'UTILITY.' : activeStep === 3 ? 'MARKET.' : 'FINAL.'"></h3>
+                            x-text="activeStep === 1 ? 'PRODUCT BASICS.' : activeStep === 2 ? 'OFFER DETAILS.' : activeStep === 3 ? 'AUDIENCE AND PRICE.' : 'GENERATE.'"></h3>
                         <p class="text-sm text-gray-500 font-medium leading-relaxed" 
-                           x-text="activeStep === 1 ? 'Nomenclature defines perception. A name is the first conversion point.' : activeStep === 2 ? 'Logic over fluff. Features are boring, benefits are life-changing.' : activeStep === 3 ? 'Resonance is key. If you talk to everyone, you talk to no one.' : 'Execution phase. The AI will now synthesize all vectors into one narrative.'"></p>
+                           x-text="activeStep === 1 ? 'Start with the product name and a clear description of the problem it solves.' : activeStep === 2 ? 'Add the main features and the strongest reason buyers should choose this offer.' : activeStep === 3 ? 'Define who the page is for and how the product is priced.' : 'Review the inputs, then generate the sales page.'"></p>
                     </div>
 
                     <div class="flex gap-2">
@@ -320,8 +387,8 @@
             </div>
 
             <div class="relative z-10 flex flex-col gap-1">
-                <span class="text-[8px] font-black uppercase tracking-[0.5em] text-gray-300">CORE_V2.0_READY</span>
-                <span class="text-[8px] font-black uppercase tracking-[0.5em] text-gray-300">LATENCY_32MS_STABLE</span>
+                <span class="text-[8px] font-black uppercase tracking-[0.5em] text-gray-300">FORM_READY</span>
+                <span class="text-[8px] font-black uppercase tracking-[0.5em] text-gray-300">AI_GENERATION_READY</span>
             </div>
         </div>
     </div>
