@@ -24,10 +24,10 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        if ($this->app->environment('production')) {
+        if (str_starts_with(config('app.url'), 'https')) {
             \URL::forceScheme('https');
         }
-        
+
         SalesPage::observe(SalesPageObserver::class);
 
         RateLimiter::for('ai-generation', function (Request $request) {
