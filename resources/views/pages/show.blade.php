@@ -186,6 +186,20 @@
         </div>
     </template>
 
+    @if ($errors->any())
+        <div class="fixed top-8 left-1/2 -translate-x-1/2 z-[110] bg-error text-error-content px-8 py-4 rounded-3xl shadow-2xl flex flex-col gap-2 animate-in slide-in-from-top-8 duration-500 min-w-[320px]">
+            <div class="flex items-center gap-4 px-4 pt-2">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                <span class="font-black uppercase tracking-widest text-xs">Validation Error</span>
+            </div>
+            <ul class="text-xs font-bold px-8 pb-4 opacity-80 list-disc list-inside">
+                @foreach ($errors->all() as $error)
+                    <li>{{ $error }}</li>
+                @endforeach
+            </ul>
+        </div>
+    @endif
+
     <main class="{{ $s['body'] }} min-h-screen selection:bg-primary selection:text-white pb-32 transition-colors duration-700">
     
     @auth
@@ -195,12 +209,12 @@
                     <a href="{{ route('dashboard') }}" class="btn btn-ghost btn-square btn-sm rounded-2xl" title="Dashboard">
                         <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m15 18-6-6 6-6"/></svg>
                     </a>
-            <div class="divider m-0 opacity-5"></div>
-            {{-- Style Switcher --}}
-            <div class="dropdown dropdown-left">
-                <button tabindex="0" class="btn btn-ghost btn-square btn-sm rounded-2xl" title="Change Style">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m19 21-7-7"/><path d="M15.3 16.5 21 19l-7-7 2.5-5.7L19 15.3l-2.5 5.7Z"/><path d="m15.3 16.5-2.5 5.7L7 15.3l5.7-2.5 2.6 3.7Z"/><path d="M9 11 3 14l7-7-2.5-5.7L4 9l2.5 5.7Z"/><path d="M9 11 6.5 5.3 14 9l-5.7 2.5-1.8-0.5Z"/></svg>
-                </button>
+                    <div class="divider m-0 opacity-5"></div>
+                    {{-- Style Switcher --}}
+                    <div class="dropdown dropdown-left">
+                        <button tabindex="0" class="btn btn-ghost btn-square btn-sm rounded-2xl" title="Change Style">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m19 21-7-7"/><path d="M15.3 16.5 21 19l-7-7 2.5-5.7L19 15.3l-2.5 5.7Z"/><path d="m15.3 16.5-2.5 5.7L7 15.3l5.7-2.5 2.6 3.7Z"/><path d="M9 11 3 14l7-7-2.5-5.7L4 9l2.5 5.7Z"/><path d="M9 11 6.5 5.3 14 9l-5.7 2.5-1.8-0.5Z"/></svg>
+                        </button>
                 <ul tabindex="0" class="dropdown-content z-[100] menu p-1.5 shadow-[0_20px_50px_rgba(0,0,0,0.15)] bg-white/95 backdrop-blur-2xl rounded-[2rem] w-40 border border-slate-200/60 gap-1 animate-in fade-in zoom-in-95 duration-200">
                     <li class="menu-title px-4 py-2 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Theme</li>
                     <li>
@@ -422,7 +436,7 @@
                         </div>
                     @else
                         @php 
-                            $isDirectVideo = Str::contains($mediaUrl, ['.mp4', '.webm', '.ogg']);
+                            $isDirectVideo = (bool) preg_match('/\.(mp4|webm|ogg|mov|m4v)$/i', $mediaUrl);
                             $isYoutube = Str::contains($mediaUrl, ['youtube.com', 'youtu.be']);
                             $isVimeo = Str::contains($mediaUrl, 'vimeo.com');
                             
@@ -444,7 +458,7 @@
                         @endphp
 
                         @if($isDirectVideo)
-                            <video src="{{ $mediaUrl }}" class="w-full h-full object-cover" autoplay loop muted playsinline></video>
+                            <video src="{{ $mediaUrl }}" class="w-full h-full object-cover" autoplay loop muted playsinline controls></video>
                         @elseif($isYoutube || $isVimeo)
                             <iframe src="{{ $finalUrl }}" class="w-full h-full border-0" allow="autoplay; fullscreen" allowfullscreen></iframe>
                         @else
@@ -668,6 +682,7 @@
                         <textarea 
                             name="value" 
                             x-model="editData.value" 
+                            :disabled="editData.type === 'file'"
                             class="w-full bg-slate-50 border-2 border-slate-100 rounded-3xl p-6 text-lg font-medium focus:outline-none focus:border-primary transition-colors min-h-[200px]"
                             placeholder="Enter content..."
                         ></textarea>
@@ -715,7 +730,7 @@
                             </div>
                         </div>
                         <div class="divider">OR</div>
-                        <input type="url" name="value" x-model="editData.value" @input="handleMediaUrlInput($event.target.value)" class="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-6 py-4 text-sm font-medium focus:outline-none focus:border-primary" placeholder="eg. https://i.imgur.com/example.jpeg">
+                        <input type="url" name="value" x-model="editData.value" :disabled="editData.type !== 'file'" @input="handleMediaUrlInput($event.target.value)" class="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-6 py-4 text-sm font-medium focus:outline-none focus:border-primary" placeholder="eg. https://i.imgur.com/example.jpeg">
                     </div>
 
                     <div class="flex gap-4 mt-10">
