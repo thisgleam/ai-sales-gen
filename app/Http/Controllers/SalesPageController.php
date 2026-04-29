@@ -250,7 +250,8 @@ class SalesPageController extends Controller
             $content[$section] = $value;
         }
 
-        $salesPage->update(['generated_content' => $content]);
+        $salesPage->generated_content = $content;
+        $salesPage->save();
 
         return back()->with('success', ucfirst(str_replace('_', ' ', $section)).' updated!');
     }
